@@ -36,6 +36,9 @@ class MainActivity : Activity() {
     private lateinit var store: Store
 
     private var lastRgb = 0x808080
+    private var wheelEdited = false
+    private var currentBmp: Bitmap? = null
+    private var pendingExport: Bitmap? = null
     private var imageName = ""
     private val samples = intArrayOf(1, 3, 5, 9)
     private var sampleIdx = 0
@@ -55,7 +58,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        memoBtn.text = "メモ一覧 (" + store.all().size + ")"
+        updateMemoCount()
+    }
+
+    private fun updateMemoCount() {
+        memoBtn.text = "メモ (" + store.all().size + ")"
     }
 
     private fun buildUi() {
@@ -76,18 +83,21 @@ class MainActivity : Activity() {
             picker.sampleN = n
             sampleBtn.text = if (n == 1) "範囲: 1px" else "平均: " + n + "×" + n
         }
-        memoBtn = flatButton(this, "メモ一覧 (0)")
+        memoBtn = flatButton(this, "メモ (0)")
         memoBtn.setOnClickListener { startActivity(Intent(this, MemoActivity::class.java)) }
         val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         lp.setMargins(dp(3), 0, dp(3), 0)
         top.addView(openBtn, lp)
         top.addView(sampleBtn, LinearLayout.LayoutParams(lp))
         top.addView(memoBtn, LinearLayout.LayoutParams(lp))
+        val exportBtn = flatButton(this, "画像で出力", 0xFF6B4E9B.toInt())
+        exportBtn.setOnClickListener { startExport() }
+        top.addView(exportBtn, LinearLayout.LayoutParams(lp))
         root.addView(top)
 
         // 画像
         picker = PickerView(this)
-        picker.onPick = { rgb -> showColor(rgb, true) }
+        picker.onPick = { rgb -> wheelEdited = false; showColor(rgb, true) }
         root.addView(picker, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // 下のパネル
@@ -100,7 +110,7 @@ class MainActivity : Activity() {
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
         wheel = ColorWheelView(this)
-        wheel.onChange = { rgb -> showColor(rgb, false) }
+        wheel.onChange = { rgb -> wheelEdited = true; showColor(rgb, false) }
         row.addView(wheel, LinearLayout.LayoutParams(dp(150), dp(150)))
 
         val info = LinearLayout(this)
@@ -198,10 +208,47 @@ class MainActivity : Activity() {
             Toast.makeText(this, "先に画像を開いてください", Toast.LENGTH_SHORT).show()
             return
         }
-        store.add(lastRgb, noteE.text.toString().trim(), imageName)
+        val pos = if (wheelEdited) floatArrayOf(-1f, -1f) else picker.pickFraction()
+        store.add(lastRgb, noteE.text.toString().trim(), imageName, pos[0], pos[1])
         noteE.setText("")
-        memoBtn.text = "メモ一覧 (" + store.all().size + ")"
+        updateMemoCount()
         Toast.makeText(this, ColorMath.hex(lastRgb) + " を保存しました", Toast.LENGTH_SHORT).show()
+    }
+
+    // ---------- 画像で出力 ----------
+    private fun startExport() {
+        val b = currentBmp
+        if (b == null) {
+            Toast.makeText(this, "先に画像を開いてください", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val memos = store.all().filter { it.image == imageName }.sortedBy { it.time }
+        if (memos.isEmpty()) {
+            Toast.makeText(this, "この画像のメモがまだありません。色を拾って「保存」してから出力してください", Toast.LENGTH_LONG).show()
+            return
+        }
+        Toast.makeText(this, "画像を作っています…", Toast.LENGTH_SHORT).show()
+        Thread {
+            try {
+                val out = ExportImage.render(b, memos, imageName)
+                runOnUiThread {
+                    pendingExport = out
+                    val base = (if (imageName.isEmpty()) "image" else imageName.substringBeforeLast('.')).replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                    val i = Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    i.addCategory(Intent.CATEGORY_OPENABLE)
+                    i.type = "image/png"
+                    i.putExtra(Intent.EXTRA_TITLE, "色メモ_" + base + ".png")
+                    try {
+                        startActivityForResult(i, REQ_EXPORT)
+                    } catch (e: Exception) {
+                        pendingExport = null
+                        Toast.makeText(this, "保存先の画面を開けませんでした", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Throwable) {
+                runOnUiThread { Toast.makeText(this, "画像を作れませんでした", Toast.LENGTH_LONG).show() }
+            }
+        }.start()
     }
 
     // ---------- 画像を開く ----------
@@ -229,6 +276,21 @@ class MainActivity : Activity() {
             val uri = data?.data
             if (uri != null) loadImage(uri)
         }
+        if (requestCode == REQ_EXPORT) {
+            val out = pendingExport
+            pendingExport = null
+            val uri = data?.data
+            if (resultCode == RESULT_OK && uri != null && out != null) {
+                Thread {
+                    try {
+                        contentResolver.openOutputStream(uri)!!.use { os -> out.compress(Bitmap.CompressFormat.PNG, 100, os) }
+                        runOnUiThread { Toast.makeText(this, "画像を保存しました", Toast.LENGTH_LONG).show() }
+                    } catch (e: Throwable) {
+                        runOnUiThread { Toast.makeText(this, "保存できませんでした", Toast.LENGTH_LONG).show() }
+                    }
+                }.start()
+            }
+        }
     }
 
     private fun handleIntent(i: Intent?) {
@@ -248,6 +310,7 @@ class MainActivity : Activity() {
                 val name = nameOf(uri)
                 runOnUiThread {
                     imageName = name
+                    currentBmp = b
                     picker.setBitmap(b)
                 }
             } catch (e: Throwable) {
@@ -307,6 +370,7 @@ class MainActivity : Activity() {
 
     companion object {
         const val REQ_IMAGE = 1
+        const val REQ_EXPORT = 2
         const val MAX_SIDE = 3072
     }
 }

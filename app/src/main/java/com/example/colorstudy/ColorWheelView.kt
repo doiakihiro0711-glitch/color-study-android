@@ -19,6 +19,7 @@ class ColorWheelView(ctx: Context) : View(ctx) {
     /** 触って色を変えたときに呼ばれる(setColor では呼ばれない) */
     var onChange: ((Int) -> Unit)? = null
 
+    private val topHue = 60f // 真上に来る色相(黄色)
     private var hue = 0f
     private var sat = 0f
     private var vl = 1f
@@ -92,7 +93,7 @@ class ColorWheelView(ctx: Context) : View(ctx) {
         if (boxS <= 0f) return
         // リング(赤が真上から始まるように回転)
         canvas.save()
-        canvas.rotate(-90f, cx, cy)
+        canvas.rotate(-90f - topHue, cx, cy)
         canvas.drawCircle(cx, cy, outerR - ringW / 2f, ringPaint)
         canvas.restore()
         // 四角
@@ -100,7 +101,7 @@ class ColorWheelView(ctx: Context) : View(ctx) {
         canvas.drawRect(rect, boxA)
         canvas.drawRect(rect, boxB)
         // リングの印
-        val ang = Math.toRadians((hue - 90f).toDouble())
+        val ang = Math.toRadians((hue - topHue - 90f).toDouble())
         val rr = outerR - ringW / 2f
         val hx = cx + (rr * Math.cos(ang)).toFloat()
         val hy = cy + (rr * Math.sin(ang)).toFloat()
@@ -119,9 +120,9 @@ class ColorWheelView(ctx: Context) : View(ctx) {
 
     private fun apply(x: Float, y: Float) {
         if (region == 1) {
-            var deg = Math.toDegrees(atan2((y - cy).toDouble(), (x - cx).toDouble())).toFloat() + 90f
-            if (deg < 0f) deg += 360f
-            hue = deg % 360f
+            var deg = Math.toDegrees(atan2((y - cy).toDouble(), (x - cx).toDouble())).toFloat() + 90f + topHue
+            deg = ((deg % 360f) + 360f) % 360f
+            hue = deg
         } else {
             sat = ((x - boxL) / boxS).coerceIn(0f, 1f)
             vl = 1f - ((y - boxT) / boxS).coerceIn(0f, 1f)

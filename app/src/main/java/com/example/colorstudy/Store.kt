@@ -5,7 +5,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-class Memo(val id: Long, val rgb: Int, var note: String, val image: String, val time: Long)
+/** fx, fy は画像上の位置(0〜1)。わからないときは -1 */
+class Memo(val id: Long, val rgb: Int, var note: String, val image: String, val time: Long, val fx: Float = -1f, val fy: Float = -1f)
 
 /** 色メモの保存(アプリ内のファイル memos.json) */
 class Store(private val ctx: Context) {
@@ -19,7 +20,7 @@ class Store(private val ctx: Context) {
             val a = JSONArray(f.readText())
             for (i in 0 until a.length()) {
                 val o = a.getJSONObject(i)
-                out.add(Memo(o.getLong("id"), o.getInt("rgb") and 0xFFFFFF, o.optString("note"), o.optString("image"), o.optLong("time")))
+                out.add(Memo(o.getLong("id"), o.getInt("rgb") and 0xFFFFFF, o.optString("note"), o.optString("image"), o.optLong("time"), o.optDouble("fx", -1.0).toFloat(), o.optDouble("fy", -1.0).toFloat()))
             }
         } catch (e: Exception) {
         }
@@ -35,6 +36,8 @@ class Store(private val ctx: Context) {
             o.put("note", m.note)
             o.put("image", m.image)
             o.put("time", m.time)
+            o.put("fx", m.fx.toDouble())
+            o.put("fy", m.fy.toDouble())
             a.put(o)
         }
         val tmp = File(ctx.filesDir, "memos.json.tmp")
@@ -42,10 +45,10 @@ class Store(private val ctx: Context) {
         tmp.renameTo(file())
     }
 
-    fun add(rgb: Int, note: String, image: String) {
+    fun add(rgb: Int, note: String, image: String, fx: Float, fy: Float) {
         val list = all()
         val now = System.currentTimeMillis()
-        list.add(Memo(now, rgb, note, image, now))
+        list.add(Memo(now, rgb, note, image, now, fx, fy))
         write(list)
     }
 

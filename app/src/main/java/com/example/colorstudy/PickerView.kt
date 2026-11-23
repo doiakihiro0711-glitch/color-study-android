@@ -66,6 +66,12 @@ class PickerView(ctx: Context) : View(ctx) {
 
     fun hasImage(): Boolean = bmp != null
 
+    /** いまのスポイト位置(画像の中での位置 0〜1)。[x, y] */
+    fun pickFraction(): FloatArray {
+        val b = bmp ?: return floatArrayOf(-1f, -1f)
+        return floatArrayOf((pickX + 0.5f) / b.width, (pickY + 0.5f) / b.height)
+    }
+
     fun setBitmap(b: Bitmap) {
         bmp = b
         fit()
