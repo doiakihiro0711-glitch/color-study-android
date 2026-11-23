@@ -2,8 +2,11 @@ package com.example.colorstudy
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.SweepGradient
 import android.graphics.Typeface
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -16,6 +19,8 @@ import kotlin.math.roundToInt
 object ExportImage {
     private const val PANEL_W = 780
     private const val SWATCH = 64
+    private const val WHEEL = 132
+    private const val TOP_HUE = 60f
     private const val BG = 0xFF181818.toInt()
 
     private class Row(val m: Memo, val num: Int, val note: StaticLayout?, val h: Int)
@@ -38,7 +43,7 @@ object ExportImage {
         val noteP = TextPaint(Paint.ANTI_ALIAS_FLAG)
         noteP.color = 0xFFE0C080.toInt()
         noteP.textSize = 26f
-        val textW = PANEL_W - 26 - SWATCH - 18 - 22
+        val textW = PANEL_W - 26 - SWATCH - 18 - WHEEL - 22 - 14
 
         // 行の高さを決める
         val rows = mutableListOf<Row>()
@@ -54,7 +59,7 @@ object ExportImage {
             }
             var h = 16 + 36 + 30 + 16
             if (layout != null) h += layout.height + 6
-            rows.add(Row(m, num, layout, max(h, SWATCH + 32)))
+            rows.add(Row(m, num, layout, max(h, WHEEL + 24)))
         }
 
         // 縦に積んで、あふれたら次の列へ
@@ -145,6 +150,10 @@ object ExportImage {
         badgeT.typeface = Typeface.DEFAULT_BOLD
         badgeT.textAlign = Paint.Align.CENTER
 
+        val wheelColors = IntArray(7)
+        for (k in 0..6) wheelColors[k] = 0xFF000000.toInt() or ColorMath.fromHsv(k * 60f, 1f, 1f)
+        val ringShader = SweepGradient(0f, 0f, wheelColors, null)
+
         for (i in rows.indices) {
             val r = rows[i]
             val x = (iw + colOf[i] * PANEL_W).toFloat()
@@ -171,6 +180,7 @@ object ExportImage {
                     "  HSV " + hs[0].roundToInt() + "° " + (hs[1] * 100).roundToInt() + "% " + (hs[2] * 100).roundToInt() + "%",
                 tx, ty, subP
             )
+            drawWheel(c, x + PANEL_W - 22f - WHEEL / 2f, top + r.h / 2f, WHEEL / 2f, r.m.rgb, ringShader)
             val nl = r.note
             if (nl != null) {
                 c.save()
@@ -180,5 +190,61 @@ object ExportImage {
             }
         }
         return out
+    }
+
+    /** 小さなカラーサークル(上が黄色の色相リング+彩度・明度の四角)に、その色の位置を印として描く */
+    private fun drawWheel(c: Canvas, cx: Float, cy: Float, outerR: Float, rgb: Int, ringShader: Shader) {
+        val hs = ColorMath.hsv(rgb)
+        val hue = hs[0]
+        val ringW = outerR * 0.22f
+        val innerR = outerR - ringW - 2f
+        val half = innerR * 1.414f / 2f
+        val ringP = Paint(Paint.ANTI_ALIAS_FLAG)
+        ringP.style = Paint.Style.STROKE
+        ringP.strokeWidth = ringW
+        ringP.shader = ringShader
+        val pure = 0xFF000000.toInt() or ColorMath.fromHsv(hue, 1f, 1f)
+        val a = Paint()
+        a.shader = LinearGradient(-half, 0f, half, 0f, 0xFFFFFFFF.toInt(), pure, Shader.TileMode.CLAMP)
+        val b = Paint()
+        b.shader = LinearGradient(0f, -half, 0f, half, 0x00000000, 0xFF000000.toInt(), Shader.TileMode.CLAMP)
+        val black = Paint(Paint.ANTI_ALIAS_FLAG)
+        black.style = Paint.Style.STROKE
+        black.strokeWidth = 5f
+        black.color = 0xFF000000.toInt()
+        val white = Paint(Paint.ANTI_ALIAS_FLAG)
+        white.style = Paint.Style.STROKE
+        white.strokeWidth = 2.5f
+        white.color = 0xFFFFFFFF.toInt()
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        c.save()
+        c.translate(cx, cy)
+        c.save()
+        c.rotate(-90f - TOP_HUE)
+        c.drawCircle(0f, 0f, outerR - ringW / 2f, ringP)
+        c.restore()
+        val rect = RectF(-half, -half, half, half)
+        c.drawRect(rect, a)
+        c.drawRect(rect, b)
+        // 色相の印(無彩色のときは色相が決まらないので付けない)
+        if (hs[1] > 0.02f && hs[2] > 0.02f) {
+            val ang = Math.toRadians((hue - TOP_HUE - 90f).toDouble())
+            val rr = outerR - ringW / 2f
+            val hx = (rr * Math.cos(ang)).toFloat()
+            val hy = (rr * Math.sin(ang)).toFloat()
+            fill.color = pure
+            c.drawCircle(hx, hy, ringW * 0.45f, fill)
+            c.drawCircle(hx, hy, ringW * 0.45f, black)
+            c.drawCircle(hx, hy, ringW * 0.45f, white)
+        }
+        // 彩度・明度の印
+        val sx = -half + hs[1] * half * 2f
+        val sy = -half + (1f - hs[2]) * half * 2f
+        fill.color = 0xFF000000.toInt() or rgb
+        c.drawCircle(sx, sy, 7f, fill)
+        c.drawCircle(sx, sy, 7f, black)
+        c.drawCircle(sx, sy, 7f, white)
+        c.restore()
     }
 }
